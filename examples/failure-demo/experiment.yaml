@@ -1,0 +1,44 @@
+name: failure-demo
+
+resources:
+  cpus_per_task: 1
+  memory_mb: 128
+  walltime_sec: 120
+
+tasks:
+  - id: success
+    command: python3 examples/failure-demo/workload.py --mode success
+
+  - id: app-error
+    command: python3 examples/failure-demo/workload.py --mode error
+
+  # Slurm limits are whole minutes and enforcement has some slack, so the first
+  # attempt (1 min) sleeps well past it, and the retry (4 min) comfortably fits.
+  - id: timeout
+    command: python3 examples/failure-demo/workload.py --mode timeout --sleep 150
+    resources:
+      walltime_sec: 60
+
+  - id: oom
+    command: python3 examples/failure-demo/workload.py --mode oom --alloc-mb 256
+    resources:
+      memory_mb: 64
+
+execution:
+  max_in_flight: 4
+  max_attempts: 2
+  retry:
+    timeout:
+      attempts: 1
+      multiplier: 4.0
+      max_seconds: 300
+    out_of_memory:
+      attempts: 1
+      multiplier: 8.0
+      max_memory_mb: 512
+      # Also retry jobs killed at their memory limit that Slurm reports as
+      # FAILED rather than OUT_OF_MEMORY (depends on cluster configuration).
+      include_suspected: true
+
+slurm:
+  extra_args: []
