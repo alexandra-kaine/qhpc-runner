@@ -2,7 +2,7 @@
 
 `qhpc-runner` is a restart-safe experiment runner for Slurm.
 
-QHPC is beginning to build benchmark and competition workflows on Queen's Frontenac cluster.
+QHPC is building benchmark and competition workflows on Queen's Frontenac cluster.
 Even a simple scaling study quickly becomes a collection of jobs with different resource
 requests, repeated runs, partial failures, and results that are easy to separate from the
 configuration that produced them.
@@ -292,8 +292,7 @@ Things this project had to handle that are easy to get wrong:
   experiment's start time, or a job that finished while the runner was down would be invisible.
 - **Time limits are whole minutes.** A 90-second request becomes 2 minutes, and enforcement has
   some slack, so the runner rounds up explicitly and the timeout demo sleeps well past its limit.
-- **Out-of-memory reporting depends on the cluster.** Where memory limits are enforced one way,
-  Slurm says `OUT_OF_MEMORY`; elsewhere the job is simply killed and shows as `FAILED`.
+- **Out-of-memory behaviour depends on cluster policy.** The runner handles explicit `OUT_OF_MEMORY` states and can optionally infer suspected OOM from SIGKILL plus memory evidence. On the Frontenac configuration used for live validation, `NoOverMemoryKill` meant exceeding requested memory did not itself trigger a Slurm memory kill.
 - **Compile for the compute nodes, not the login node.** `-march=native` on a login node can
   produce a binary that dies with "Illegal instruction" on a compute node with a different CPU.
 - **Editing the YAML starts a new experiment.** Experiments are identified by a hash of their
@@ -324,6 +323,7 @@ They cover:
 - suspected-OOM detection, and that a low-memory kill is *not* treated as OOM;
 - application errors are never retried; `sbatch` rejections stop submission;
 - parsing real-shaped `sacct` output, including memory from the batch step;
+- hidden-partition reconciliation through `squeue -a`, added as a regression test after the issue was found on Frontenac;
 - an earlier attempt is never re-classified after a retry (a regression test for a bug found
   when running against a real Slurm cluster);
 - speedup and efficiency calculations in `report`.
