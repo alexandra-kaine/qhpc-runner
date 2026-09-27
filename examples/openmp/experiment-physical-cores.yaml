@@ -1,0 +1,32 @@
+name: openmp-physical-cores
+workload:
+  command: ./bin/openmp_integrate --steps 200000000
+matrix:
+  threads:
+  - 1
+  - 2
+  - 4
+  - 8
+  repeat:
+  - 1
+  - 2
+  - 3
+resources:
+  cpus_per_task: '{threads}'
+  memory_mb: 512
+  walltime_sec: 180
+env:
+  OMP_NUM_THREADS: '{threads}'
+  OMP_PROC_BIND: close
+  OMP_PLACES: cores
+execution:
+  max_in_flight: 12
+  max_attempts: 2
+  retry:
+    timeout:
+      attempts: 1
+      multiplier: 1.5
+      max_seconds: 600
+slurm:
+  extra_args:
+  - --hint=nomultithread

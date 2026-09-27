@@ -1,6 +1,6 @@
 # qhpc-runner
 
-`qhpc-runner` is a small, restart-safe experiment runner for Slurm.
+`qhpc-runner` is a restart-safe experiment runner for Slurm.
 
 QHPC is beginning to build benchmark and competition workflows on Queen's Frontenac cluster.
 Even a simple scaling study quickly becomes a collection of jobs with different resource
@@ -10,6 +10,8 @@ configuration that produced them.
 The runner keeps that experiment state in SQLite, advances it through short `sync` calls, and
 reconciles its local state against Slurm rather than assuming an always-running controller
 process.
+
+**Validated on Frontenac:** a 12-run OpenMP scaling study reached **6.98x speedup across 8 physical cores (87% parallel efficiency)**. Live cluster testing also validated crash-after-submission recovery without duplicate execution, application-error handling, bounded timeout retry, and reconciliation across hidden Slurm partitions.
 
 ## What it does
 
@@ -82,21 +84,21 @@ scontrol ping
 Preview the experiment without submitting anything:
 
 ```bash
-qhpc-run plan examples/openmp/experiment.yaml
+qhpc-run plan examples/openmp/experiment-physical-cores.yaml
 ```
 
-The matrix runs 1, 2, 4, and 8 OpenMP threads with three repeats each.
+The matrix runs 1, 2, 4, and 8 OpenMP threads with three repeats each. The published configuration uses `--hint=nomultithread` so each OpenMP thread is placed on a distinct physical core rather than sharing a core through SMT.
 
 Submit/reconcile up to the configured cap:
 
 ```bash
-qhpc-run sync examples/openmp/experiment.yaml
+qhpc-run sync examples/openmp/experiment-physical-cores.yaml
 ```
 
 Check persisted state:
 
 ```bash
-qhpc-run status examples/openmp/experiment.yaml
+qhpc-run status examples/openmp/experiment-physical-cores.yaml
 ```
 
 Run `sync` again later to reconcile completed jobs and submit the next set.
@@ -105,7 +107,7 @@ When everything has completed:
 
 ```bash
 python -m pip install -e ".[report]"   # matplotlib, for the chart
-qhpc-run report examples/openmp/experiment.yaml
+qhpc-run report examples/openmp/experiment-physical-cores.yaml
 ```
 
 This writes `results/<experiment>-<hash>/` containing `raw.csv`, `summary.csv`, `report.md`,
@@ -115,23 +117,29 @@ less trust.
 
 ## Results
 
-<!-- Replace this with your real Frontenac output: the scaling.png chart, the summary table
-     from report.md, and two or three sentences on what you see (for example, where efficiency
-     drops and why). Do not paste numbers from anywhere except your own run. -->
+Measured on Queen's University Frontenac HPC cluster using one OpenMP thread per physical core (`--hint=nomultithread`).
 
-The workload sets:
+12 completed runs, with three repeats per thread count. Results below use the median elapsed time.
 
-```text
-OMP_NUM_THREADS={threads}
-OMP_PROC_BIND=close
-OMP_PLACES=cores
-```
+| threads | runs | median elapsed (s) | spread | speedup | efficiency |
+|---|---:|---:|---:|---:|---:|
+| 1 | 3 | 2.072102 | 1.1% | 1.00x | 100% |
+| 2 | 3 | 1.137157 | 1.1% | 1.82x | 91% |
+| 4 | 3 | 0.604352 | 1.4% | 3.43x | 86% |
+| 8 | 3 | 0.296833 | 0.1% | 6.98x | 87% |
 
-so the requested Slurm CPUs and the OpenMP runtime agree on thread count and placement.
+### CPU-affinity validation
 
-The initial timing results should be treated as exploratory: Frontenac is shared infrastructure,
-so node placement and concurrent activity can add noise. Compare repeated runs rather than
-over-interpreting one timing.
+An earlier 8-thread run achieved 4.2x speedup. Runtime affinity inspection showed that Slurm had allocated eight logical CPUs across only four physical cores using simultaneous multithreading (SMT).
+
+The experiment was repeated with `--hint=nomultithread`, giving one OpenMP thread per physical core. The resulting 8-core run achieved 6.98x speedup with 87% parallel efficiency.
+
+This distinction was verified using Slurm CPU allocation metadata, `lscpu`, and OpenMP affinity diagnostics.
+
+
+![OpenMP physical-core scaling](demo/openmp-physical-cores/scaling.png)
+
+Public artifacts: [`report.md`](demo/openmp-physical-cores/report.md) · [`summary.csv`](demo/openmp-physical-cores/summary.csv) · [`experiment config`](examples/openmp/experiment-physical-cores.yaml)
 
 ## Failure/recovery demo
 
@@ -142,7 +150,16 @@ The failure experiment contains four small tasks:
 | `success` | completes normally |
 | `app-error` | exits non-zero and is not retried |
 | `timeout` | exceeds its walltime and is eligible for one bounded retry |
-| `oom` | deliberately exceeds a small memory request and is eligible for one bounded retry if Slurm reports `OUT_OF_MEMORY` |
+| `oom` | exceeds a small memory request and is eligible for one bounded retry when Slurm reports `OUT_OF_MEMORY` or configured suspected-OOM evidence |
+
+On the Frontenac configuration used for live validation, `JobAcctGatherParams=NoOverMemoryKill` meant exceeding requested memory did not trigger a Slurm kill, so OOM recovery is covered by automated scheduler tests rather than claimed as a live cluster result.
+
+### Live validation results
+
+- A deliberate crash immediately after `sbatch` was recovered on the next `sync` by finding the already-accepted Slurm job; no duplicate was submitted.
+- An intentional application error was classified as `FAILED_APP` and was not retried.
+- A task that exceeded its initial walltime was classified as `TIMEOUT`, retried once with a larger walltime, and completed successfully on attempt two.
+- Live deployment exposed hidden Slurm partitions being omitted from the default queue view; reconciliation was updated to use `squeue -a` and a regression test was added.
 
 Preview it:
 
