@@ -267,6 +267,7 @@ that", the runner makes it impossible.
 ## Slurm behaviour worth knowing
 
 Things this project had to handle that are easy to get wrong:
+- Hidden Slurm partitions are omitted from the default `squeue` view on some clusters. The runner queries `squeue -a` so live jobs in those partitions are still visible during reconciliation.
 
 - **Memory is reported per step.** In `sacct`, the job's own line has no `MaxRSS`; the
   `.batch` step line does. Reading only the job line reports zero memory for every job.
